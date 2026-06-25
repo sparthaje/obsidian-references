@@ -19,6 +19,10 @@ const testAnnotatorSettings: IHasAnnotatorSettings = {
             includePostfix: true,
             includePrefix: true,
             highlightHighlightedText: true
+        },
+        referenceNotesSettings: {
+            folder: "references",
+            retitleOnTarget: true
         }
     }
 }

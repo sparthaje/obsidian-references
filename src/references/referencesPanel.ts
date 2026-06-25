@@ -3,7 +3,7 @@
  * subscribes to the ReferencesController and renders the list of references
  * cited on the page currently shown in the active PDF.
  */
-import { ItemView, WorkspaceLeaf } from 'obsidian';
+import { ItemView, WorkspaceLeaf, setIcon } from 'obsidian';
 import type AnnotatorPlugin from 'main';
 import { VIEW_TYPE_REFERENCES, REFERENCES_ICON } from 'constants';
 import type { ReferencesState } from 'references/referencesController';
@@ -18,7 +18,11 @@ export const REFERENCES_STYLES = `
 .links-reference-row { display: flex; gap: 8px; padding: 8px; border-radius: var(--radius-s); cursor: pointer; align-items: baseline; }
 .links-reference-row:hover { background: var(--background-modifier-hover); }
 .links-reference-num { color: var(--text-accent); font-weight: 600; font-variant-numeric: tabular-nums; flex-shrink: 0; }
-.links-reference-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.links-reference-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.links-reference-backlink { flex-shrink: 0; align-self: center; display: flex; align-items: center; justify-content: center;
+    padding: 4px; border-radius: var(--radius-s); color: var(--text-muted); cursor: pointer; opacity: 0; background: transparent; border: none; }
+.links-reference-row:hover .links-reference-backlink { opacity: 1; }
+.links-reference-backlink:hover { background: var(--background-modifier-hover); color: var(--text-accent); }
 .links-reference-title { font-size: var(--font-ui-small); line-height: 1.3; }
 .links-reference-full { font-size: var(--font-ui-smaller); color: var(--text-muted); line-height: 1.3;
     display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
@@ -105,6 +109,17 @@ export default class ReferencesPanelView extends ItemView {
                 body.createDiv({ cls: 'links-reference-full', text: ref.fullText });
             }
             row.addEventListener('click', () => this.plugin.referencesController.jumpToPage(ref.destPage));
+
+            // "Open backlink": create/open the reference note and link it from the
+            // current paper. Distinct from the row's jump-to-page click.
+            const backlink = row.createEl('button', { cls: 'links-reference-backlink' });
+            backlink.setAttribute('aria-label', 'Open reference note (creates a backlink)');
+            backlink.setAttribute('title', 'Open reference note (creates a backlink)');
+            setIcon(backlink, 'file-symlink');
+            backlink.addEventListener('click', e => {
+                e.stopPropagation();
+                this.plugin.referencesController.openReferenceNote(ref);
+            });
         }
     }
 }

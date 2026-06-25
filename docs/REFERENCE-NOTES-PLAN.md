@@ -33,19 +33,29 @@ citation links to the first one's note instead of making a new one. Reference st
 across papers (author order, abbreviations, venue formatting, "et al."), so we need a stable
 **canonical key** per work and a deterministic note path derived from it.
 
+A key realization: the *same work* shows up in different places — sometimes as an arXiv
+preprint, sometimes on a publisher/conference site, sometimes a personal page — and the
+arXiv id/DOI is often absent or different between those venues. So an id-based key is great
+when present but unreliable as the *primary* signal. **Title + author is the most robust
+disambiguator across venues**, because it stays stable no matter where the PDF lives.
+
 Candidate identity signals, best → worst:
 
-1. **arXiv id / DOI**, if present in the reference text (`arXiv:1706.03762`, `doi:10.../...`).
-   Strongest; extractable by regex from the full reference string we already capture.
-2. **Normalized title** — lowercase, strip punctuation/diacritics, collapse whitespace, drop a
-   trailing period. Good enough for the common case where the title is extracted cleanly
-   (Part 1's `guessTitle` already does most of this).
-3. **Title + first author surname + year** — disambiguates identical-titled works.
+1. **Title + first-author surname** (optionally `+ year`) — the primary key. Stable across
+   arXiv/publisher/personal-site copies of the same paper, and disambiguates identical-titled
+   works (e.g. two different "Attention" papers). Normalize both: lowercase, strip
+   punctuation/diacritics, collapse whitespace.
+2. **arXiv id / DOI**, if present in the reference text (`arXiv:1706.03762`, `doi:10.../...`).
+   Strong when it exists and extractable by regex from the full reference string we already
+   capture — use it as a *secondary* merge signal (two notes that resolve to the same id are
+   the same work) rather than the filename key, since it's frequently missing.
+3. **Normalized title alone** — fallback when no author can be parsed.
 
-**Recommendation:** key = arXiv-id/DOI if found, else `slug(normalizedTitle)` (optionally
-`+ "-" + year`). Store the raw signals in the note's frontmatter so the key can be recomputed
-/ migrated later. Accept that dedup is heuristic and occasionally wrong; make it easy to merge
-two notes manually.
+**Recommendation:** key = `slug(normalizedTitle + "-" + firstAuthorSurname)` (optionally
+`+ "-" + year`); fall back to `slug(normalizedTitle)` if no author parses. Store *all* raw
+signals (title, authors, year, any arXiv/DOI) in the note's frontmatter so the key can be
+recomputed/migrated later and so id matches can drive a "these two notes are the same" merge.
+Accept that dedup is heuristic and occasionally wrong; make it easy to merge two notes manually.
 
 ## Note shape
 
@@ -67,6 +77,24 @@ cited-by: ["[[Diffusion Policy (paper note)]]"]
   first-class Links reader for that paper.
 - `cited-by` and/or wikilinks in the *citing* note give the graph its edges (see below).
 
+### Retitle the note when an annotation-target is added
+
+When the user pastes a URL into a reference note's `annotation-target` (turning the stub into a
+real reader), the note should **rename itself to the paper's title** — so the file/tab stops
+showing the slug (`attention-is-all-you-need`) and shows the human title ("Attention is all you
+need") once the work is actually being read. Mechanics:
+
+- Watch for `annotation-target` going from empty → non-empty (via `metadataCache`'s
+  `changed`/`resolve` events on the reference note).
+- Rename the file with `app.fileManager.renameFile(file, newPath)` so Obsidian rewrites all
+  inbound wikilinks/backlinks automatically — the citing notes' `## References` links keep
+  working.
+- Source the new name from the `title` frontmatter we already stored; sanitize for filename
+  safety (same slug/illegal-char rules as creation) and de-collide if a note with that title
+  already exists.
+- Keep the canonical slug discoverable (e.g. retain it as an `aliases` entry) so dedup of future
+  citations still resolves to this note after the rename.
+
 ## Linking direction (what makes the graph light up)
 
 Two complementary edges; we should write the first, optionally the second:
@@ -81,9 +109,15 @@ Two complementary edges; we should write the first, optionally the second:
 
 ## How clicking wires in (builds on Part 1)
 
-Part 1 already produces, per reference, `{ number, title, fullText, destPage }`. Part 2 adds an
-`onClick` on the panel row (replacing the current "jump to page" behavior, or as a second
-action) that calls a new `ReferenceNotesService`:
+Each reference row in the right-hand panel gets an explicit **"open backlink" button** (a small
+icon/action on the row, distinct from the existing "jump to page" click so we don't lose that
+behavior). Clicking that button is what creates-or-opens the reference note and wires up the
+link. Making it an explicit affordance — rather than overloading the row's main click — keeps
+the "navigate within this PDF" and "branch out to the cited work's note" actions separate and
+discoverable.
+
+Part 1 already produces, per reference, `{ number, title, fullText, destPage }`. The button's
+handler calls a new `ReferenceNotesService`:
 
 ```
 onClickReference(ref, citingNotePath):

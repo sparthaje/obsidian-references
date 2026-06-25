@@ -40,6 +40,7 @@ import * as jszip from 'jszip';
 import SourceViewObserver from 'sourceViewObserver';
 import ReferencesController from 'references/referencesController';
 import ReferencesPanelView, { REFERENCES_STYLES } from 'references/referencesPanel';
+import ReferenceNotesService from 'references/referenceNotesService';
 
 export default class AnnotatorPlugin extends Plugin implements IHasAnnotatorSettings {
     static instance: AnnotatorPlugin = null;
@@ -72,6 +73,8 @@ export default class AnnotatorPlugin extends Plugin implements IHasAnnotatorSett
 
     // @ts-ignore initialized in onloadImpl()
     referencesController: ReferencesController;
+    // @ts-ignore initialized in onloadImpl()
+    referenceNotesService: ReferenceNotesService;
     private referencesStyleEl: HTMLStyleElement | null = null;
     private aliasedUpstreamId = false;
 
@@ -109,6 +112,7 @@ export default class AnnotatorPlugin extends Plugin implements IHasAnnotatorSett
         this.aliasUpstreamPluginId();
         this.registerView(VIEW_TYPE_PDF_ANNOTATOR, leaf => new AnnotatorView(leaf, this));
         this.referencesController = new ReferencesController(this);
+        this.referenceNotesService = new ReferenceNotesService(this);
         this.registerView(VIEW_TYPE_REFERENCES, leaf => new ReferencesPanelView(leaf, this));
         this.injectReferencesStyles();
         await this.loadResources();

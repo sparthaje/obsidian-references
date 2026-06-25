@@ -91,6 +91,16 @@ export default class ReferencesController {
         }
     }
 
+    /**
+     * Open (creating if needed) the reference note for a citation and link it
+     * from the paper currently being read. Used by the panel's "open backlink"
+     * button.
+     */
+    openReferenceNote(ref: PageReference) {
+        const citingNotePath = this.state?.annotationFile ?? this.active?.annotationFile ?? null;
+        void this.plugin.referenceNotesService.openReferenceNote(ref, citingNotePath);
+    }
+
     /** Scroll the active PDF viewer to a page (used when a reference row is clicked). */
     jumpToPage(page: number) {
         if (!this.active?.pvApp) return;
@@ -108,6 +118,7 @@ export default class ReferencesController {
 
         let bound = false;
         let cancelled = false;
+        let retitled = false;
         const init = () => {
             if (cancelled) return;
             if (pvApp.pdfDocument) {
@@ -116,6 +127,11 @@ export default class ReferencesController {
                 if (pvApp.eventBus && !bound) {
                     bound = true;
                     pvApp.eventBus.on('pagechanging', onPageChange);
+                }
+                // Retitle the backing note from the PDF's title, once per load.
+                if (!retitled) {
+                    retitled = true;
+                    void this.plugin.referenceNotesService.retitleFromPdf(annotationFile, pvApp.pdfDocument);
                 }
                 this.scheduleUpdate(pvApp.page || 1);
             } else {

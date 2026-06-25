@@ -21,6 +21,10 @@ export interface AnnotatorSettings {
         includePostfix: boolean;
     };
     annotateTvUrl?: string;
+    referenceNotesSettings: {
+        folder: string;
+        retitleOnTarget: boolean;
+    };
     debugLogging: boolean;
 }
 
@@ -42,6 +46,10 @@ export const DEFAULT_SETTINGS: AnnotatorSettings = {
         includePrefix: true,
         highlightHighlightedText: true,
         includePostfix: true
+    },
+    referenceNotesSettings: {
+        folder: 'references',
+        retitleOnTarget: true
     }
 };
 
@@ -233,6 +241,33 @@ export default class AnnotatorSettingsTab extends PluginSettingTab {
                         await this.plugin.unloadResources();
                         await this.plugin.loadResources();
                     }, 2000);
+                    await this.plugin.saveSettings();
+                })
+            );
+
+        containerEl.createEl('h3', { text: 'Reference notes (Links)' });
+
+        new Setting(containerEl)
+            .setName('Reference notes folder')
+            .setDesc('Folder where reference notes (one per cited work) are created.')
+            .addText(text =>
+                text
+                    .setPlaceholder('references')
+                    .setValue(this.plugin.settings.referenceNotesSettings.folder)
+                    .onChange(async value => {
+                        this.plugin.settings.referenceNotesSettings.folder = value.trim() || 'references';
+                        await this.plugin.saveSettings();
+                    })
+            );
+
+        new Setting(containerEl)
+            .setName('Retitle note when annotation-target is set')
+            .setDesc(
+                'When you paste a URL into a reference note\'s annotation-target, rename the note from its slug to the paper title.'
+            )
+            .addToggle(toggle =>
+                toggle.setValue(this.plugin.settings.referenceNotesSettings.retitleOnTarget).onChange(async value => {
+                    this.plugin.settings.referenceNotesSettings.retitleOnTarget = value;
                     await this.plugin.saveSettings();
                 })
             );
