@@ -1,1 +1,3 @@
 !*
+# Sourcemaps for the vendored Hypothesis client are build artifacts (no runtime use); don't track them.
+cdn.hypothes.is/hypothesis/build/**/*.map
