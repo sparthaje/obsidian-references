@@ -15,4 +15,5 @@ main.js
 # obsidian
 data.json
 .vault_plugin_dir
-resources/cdn.hypothes.is/hypothesis/build
+# Note: the Hypothesis client build (resources/cdn.hypothes.is/hypothesis/build) is
+# vendored/committed in this fork so builds don't require the hypothesis-client submodule.
