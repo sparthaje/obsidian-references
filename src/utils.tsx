@@ -44,6 +44,25 @@ export function get_url_extension(url) {
     return url.split(/[#?]/)[0].split('.').pop().trim();
 }
 
+// Determine whether an annotation target is a pdf/epub/etc. Falls back to the file
+// extension, but also recognizes research-PDF URLs that lack a `.pdf` extension
+// (e.g. https://arxiv.org/pdf/2104.14294 or https://openreview.net/pdf?id=...).
+export function getAnnotationTargetType(target: string, explicitType?: string | null): string {
+    if (explicitType) return explicitType;
+    const ext = get_url_extension(target).toLowerCase();
+    if (ext === 'pdf' || ext === 'epub') return ext;
+    const t = target.toLowerCase();
+    if (
+        /arxiv\.org\/pdf\//.test(t) ||
+        /openreview\.net\/pdf\b/.test(t) ||
+        /\/pdf(\/|\?|#|$)/.test(t) ||
+        /[?&](format|download|file)=[^&]*pdf\b/.test(t)
+    ) {
+        return 'pdf';
+    }
+    return ext;
+}
+
 export function isUrl(potentialUrl: string) {
     try {
         new URL(potentialUrl);

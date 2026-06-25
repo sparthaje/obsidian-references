@@ -1,10 +1,10 @@
 {
-	"id": "obsidian-annotator",
-	"name": "Annotator",
+	"id": "references",
+	"name": "References",
 	"version": "0.2.11",
 	"minAppVersion": "1.0.3",
-	"description": "This is a sample plugin for Obsidian. It allows you to open and annotate PDF and EPUB files.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md/about",
+	"description": "Read research PDFs/EPUBs with a live side panel of the references cited on the page you are viewing. Fork of obsidian-annotator.",
+	"author": "fork of elias-sundqvist/obsidian-annotator",
+	"authorUrl": "https://github.com/elias-sundqvist/obsidian-annotator",
 	"isDesktopOnly": false
 }

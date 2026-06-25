@@ -85,6 +85,13 @@ export default (vault: Vault, plugin: AnnotatorPlugin) => {
                         container.scrollTop += dy * (pinchScale - 1);
                         reset();
                     });
+                    try {
+                        // Surface this PDF's viewer to the references side panel.
+                        plugin.referencesController.registerViewer(PDFViewerApplication, props.pdf, props.annotationFile);
+                    } catch (e) {
+                        plugin.log('Links: failed to register PDF viewer for references panel', e);
+                    }
+
                     await onload(iframe);
                 }}
             />

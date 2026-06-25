@@ -1,10 +1,40 @@
-[![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/elias-sundqvist/obsidian-annotator?style=for-the-badge&sort=semver)](https://github.com/elias-sundqvist/obsidian-annotator/releases/latest)
-![GitHub All Releases](https://img.shields.io/github/downloads/elias-sundqvist/obsidian-annotator/total?style=for-the-badge)
-# Obsidian Annotator
+# References
+
+**References** is an Obsidian plugin for reading research papers (PDF/EPUB) with a **references side panel**: for the PDF page you are currently viewing, it lists every reference cited on that page as `[N] <reference title>`, by following the citation hyperlinks that already exist inside the PDF — no external lookups. (Project codename: "Links".)
+
+> **This is a fork of [obsidian-annotator](https://github.com/elias-sundqvist/obsidian-annotator)** by Elias Sundqvist — which is itself based on [hypothes.is](https://web.hypothes.is/), modified to store annotations in a local markdown file instead of online. All original annotator features are retained. References adds the per-page panel; a planned second phase turns each reference into a clickable, deduplicated note so the Obsidian graph links papers automatically (see [`docs/REFERENCE-NOTES-PLAN.md`](docs/REFERENCE-NOTES-PLAN.md)).
 
 This is a plugin for Obsidian (https://obsidian.md). It allows you to open and annotate PDF and EPUB files. 
 
 The plugin is based on https://web.hypothes.is/, but modified to store the annotations in a local markdown file instead of on the internet. 
+
+## The references panel (new in this fork)
+
+Open the panel via the command palette (**"Links: Open references panel"**) or the ribbon icon. As you read a PDF, it lists every reference cited on the page you are currently viewing as `[N] <title>`, read directly from the citation hyperlinks already inside the PDF — no internet lookups. Click a row to jump to that entry in the bibliography. It works for arXiv, OpenReview, and local PDFs, and handles both single- and two-column reference sections.
+
+## Trying it out (developer build)
+
+This repo builds to a single self-contained `main.js`:
+
+```bash
+npm install --legacy-peer-deps --ignore-scripts   # first time only
+npm run quick-build                                # produces main.js
+bash scripts/install-to-vault.sh "/path/to/YourVault"
+```
+
+Then enable **References** under *Settings → Community plugins* (toggle it on; reload Obsidian if it doesn't appear). The install script also writes `.vault_plugin_dir`, so `npm run dev` will rebuild straight into your vault for live development.
+
+To open a paper, create a note whose frontmatter points at a PDF, then run **"Annotate"** from the note's ⋮ menu:
+
+```md
+---
+annotation-target: https://arxiv.org/pdf/2104.14294
+---
+```
+
+### Annotation / highlighting in this build
+
+PDF reading and the references panel work out of the box. Highlighting/annotation (the inherited hypothes.is features) additionally require the bundled Hypothesis client at `resources/cdn.hypothes.is/hypothesis/build`, which is **not** checked in — it is produced from the `hypothesis-client-annotator-fork` git submodule. Until it is built, PDFs still render and the references panel works, but you cannot create highlights. To restore it: `git submodule update --init`, build the submodule per upstream's `build-hypothesis` npm script, then rebuild. This is a deliberate, deferred follow-up.
 
 ## Demonstration
 ![annotator demo](https://user-images.githubusercontent.com/9102856/131702952-1aa76baa-a279-474c-978d-cec95a683485.gif)

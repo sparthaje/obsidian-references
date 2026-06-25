@@ -19,7 +19,13 @@ import { getAPI as getDataviewApi } from 'obsidian-dataview';
 import definePdfAnnotation from './definePdfAnnotation';
 import { around } from 'monkey-around';
 
-import { VIEW_TYPE_PDF_ANNOTATOR, ICON_NAME, ANNOTATION_TARGET_PROPERTY } from './constants';
+import {
+    VIEW_TYPE_PDF_ANNOTATOR,
+    ICON_NAME,
+    ANNOTATION_TARGET_PROPERTY,
+    VIEW_TYPE_REFERENCES,
+    REFERENCES_ICON
+} from './constants';
 import defineEpubAnnotation from './defineEpubAnnotation';
 import defineVideoAnnotation from './defineVideoAnnotation';
 import { Annotation, PdfAnnotationProps, EpubAnnotationProps, VideoAnnotationProps, WebAnnotationProps } from './types';
@@ -32,6 +38,8 @@ import { awaitResourceLoading, loadResourcesZip, unloadResources } from 'resourc
 import stringEncodedResourcesFolder from './resources!zipStringEncoded';
 import * as jszip from 'jszip';
 import SourceViewObserver from 'sourceViewObserver';
+import ReferencesController from 'references/referencesController';
+import ReferencesPanelView, { REFERENCES_STYLES } from 'references/referencesPanel';
 
 export default class AnnotatorPlugin extends Plugin implements IHasAnnotatorSettings {
     static instance: AnnotatorPlugin = null;
@@ -61,6 +69,10 @@ export default class AnnotatorPlugin extends Plugin implements IHasAnnotatorSett
 
     // @ts-ignore initializes in onloadImpl()
     sourceViewObserver: SourceViewObserver;
+
+    // @ts-ignore initialized in onloadImpl()
+    referencesController: ReferencesController;
+    private referencesStyleEl: HTMLStyleElement | null = null;
 
     async onload() {
         AnnotatorPlugin.instance = this;
@@ -94,6 +106,9 @@ export default class AnnotatorPlugin extends Plugin implements IHasAnnotatorSett
         this.styleObserver = new StyleObserver();
         this.styleObserver.watch();
         this.registerView(VIEW_TYPE_PDF_ANNOTATOR, leaf => new AnnotatorView(leaf, this));
+        this.referencesController = new ReferencesController(this);
+        this.registerView(VIEW_TYPE_REFERENCES, leaf => new ReferencesPanelView(leaf, this));
+        this.injectReferencesStyles();
         await this.loadResources();
         this.PdfAnnotation = definePdfAnnotation(this.app.vault, this);
         this.EpubAnnotation = defineEpubAnnotation(this.app.vault, this);
@@ -138,7 +153,7 @@ export default class AnnotatorPlugin extends Plugin implements IHasAnnotatorSett
                     menu.addItem(
                         (item: MenuItem): MenuItem =>
                             item
-                                .setTitle('Annotate')
+                                .setTitle('Annotate (References)')
                                 .setIcon(ICON_NAME)
                                 .onClick(async () => {
                                     // any because leaf doesn't have id in type
@@ -162,6 +177,23 @@ export default class AnnotatorPlugin extends Plugin implements IHasAnnotatorSett
                         this.sourceViewObserver.initObserver();
                     }
                     this.sourceViewObserver.watch();
+                }
+            })
+        );
+
+        this.addCommand({
+            id: 'open-references-panel',
+            name: 'Open references panel',
+            callback: () => this.activateReferencesPanel(true)
+        });
+
+        this.addRibbonIcon(REFERENCES_ICON, 'Open references panel', () => this.activateReferencesPanel(true));
+
+        this.registerEvent(
+            this.app.workspace.on('active-leaf-change', leaf => {
+                const view = leaf?.view;
+                if (view instanceof AnnotatorView && view.file) {
+                    this.referencesController.onActiveViewer(view.file.path);
                 }
             })
         );
@@ -223,6 +255,8 @@ export default class AnnotatorPlugin extends Plugin implements IHasAnnotatorSett
     }
 
     onunload() {
+        this.referencesController?.dispose();
+        this.removeReferencesStyles();
         this.unloadResources();
         this.styleObserver.unwatch();
         this.styleObserver.listerners = null;
@@ -232,6 +266,32 @@ export default class AnnotatorPlugin extends Plugin implements IHasAnnotatorSett
         if (this.sourceViewObserver.getObserver()) {
             this.sourceViewObserver.getObserver().disconnect();
         }
+    }
+
+    /** Open (and optionally reveal) the references side panel in the right sidebar. */
+    async activateReferencesPanel(reveal: boolean) {
+        const { workspace } = this.app;
+        let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(VIEW_TYPE_REFERENCES)[0] ?? null;
+        if (!leaf) {
+            leaf = workspace.getRightLeaf(false);
+            if (!leaf) return;
+            await leaf.setViewState({ type: VIEW_TYPE_REFERENCES, active: false });
+        }
+        if (reveal) workspace.revealLeaf(leaf);
+    }
+
+    private injectReferencesStyles() {
+        if (this.referencesStyleEl) return;
+        const style = document.createElement('style');
+        style.id = 'links-references-styles';
+        style.textContent = REFERENCES_STYLES;
+        document.head.appendChild(style);
+        this.referencesStyleEl = style;
+    }
+
+    private removeReferencesStyles() {
+        this.referencesStyleEl?.remove();
+        this.referencesStyleEl = null;
     }
 
     async loadSettings() {

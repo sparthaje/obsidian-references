@@ -6,7 +6,7 @@ import { Annotation } from './types';
 import { FileView, Menu, MenuItem, TFile, WorkspaceLeaf } from 'obsidian';
 import React from 'react';
 import ReactDOM from 'react-dom';
-import { isUrl, get_url_extension } from 'utils';
+import { isUrl, get_url_extension, getAnnotationTargetType } from 'utils';
 
 export default class AnnotatorView extends FileView {
     plugin: AnnotatorPlugin;
@@ -75,9 +75,10 @@ export default class AnnotatorView extends FileView {
             this.contentEl.style.height = '100%';
             this.annotationTarget = annotationTarget;
             if (annotationTarget) {
-                const annotationTargetType =
-                    this.plugin.getPropertyValue(ANNOTATION_TARGET_TYPE_PROPERTY, file) ||
-                    get_url_extension(annotationTarget);
+                const annotationTargetType = getAnnotationTargetType(
+                    annotationTarget,
+                    this.plugin.getPropertyValue(ANNOTATION_TARGET_TYPE_PROPERTY, file)
+                );
                 let component;
                 switch (annotationTargetType) {
                     case 'pdf':
@@ -175,6 +176,7 @@ export default class AnnotatorView extends FileView {
             ReactDOM.unmountComponentAtNode(this.contentEl);
         } catch (e) {}
         this.plugin.views.delete(this);
+        if (this.file) this.plugin.referencesController?.unregisterViewer(this.file.path);
         this.contentEl.empty();
     }
 
@@ -182,6 +184,7 @@ export default class AnnotatorView extends FileView {
         try {
             ReactDOM.unmountComponentAtNode(this.contentEl);
         } catch (e) {}
+        this.plugin.referencesController?.unregisterViewer(file.path);
         await super.onUnloadFile(file);
     }
 
@@ -226,9 +229,10 @@ export default class AnnotatorView extends FileView {
         const isPageNote = !annotation.target?.length;
         const selectors = new Set(isPageNote ? [] : annotation.target[0].selector.map(x => JSON.stringify(x)));
 
-        const annotationTargetType =
-            this.plugin.getPropertyValue(ANNOTATION_TARGET_TYPE_PROPERTY, this.file) ||
-            get_url_extension(this.annotationTarget);
+        const annotationTargetType = getAnnotationTargetType(
+            this.annotationTarget,
+            this.plugin.getPropertyValue(ANNOTATION_TARGET_TYPE_PROPERTY, this.file)
+        );
 
         const g = () => {
             try {
