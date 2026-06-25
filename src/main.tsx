@@ -73,6 +73,7 @@ export default class AnnotatorPlugin extends Plugin implements IHasAnnotatorSett
     // @ts-ignore initialized in onloadImpl()
     referencesController: ReferencesController;
     private referencesStyleEl: HTMLStyleElement | null = null;
+    private aliasedUpstreamId = false;
 
     async onload() {
         AnnotatorPlugin.instance = this;
@@ -105,6 +106,7 @@ export default class AnnotatorPlugin extends Plugin implements IHasAnnotatorSett
         await this.loadSettings();
         this.styleObserver = new StyleObserver();
         this.styleObserver.watch();
+        this.aliasUpstreamPluginId();
         this.registerView(VIEW_TYPE_PDF_ANNOTATOR, leaf => new AnnotatorView(leaf, this));
         this.referencesController = new ReferencesController(this);
         this.registerView(VIEW_TYPE_REFERENCES, leaf => new ReferencesPanelView(leaf, this));
@@ -257,6 +259,7 @@ export default class AnnotatorPlugin extends Plugin implements IHasAnnotatorSett
     onunload() {
         this.referencesController?.dispose();
         this.removeReferencesStyles();
+        this.removeUpstreamPluginAlias();
         this.unloadResources();
         this.styleObserver.unwatch();
         this.styleObserver.listerners = null;
@@ -292,6 +295,31 @@ export default class AnnotatorPlugin extends Plugin implements IHasAnnotatorSett
     private removeReferencesStyles() {
         this.referencesStyleEl?.remove();
         this.referencesStyleEl = null;
+    }
+
+    /**
+     * The vendored Hypothesis client (elias-sundqvist's fork) reaches back into the plugin
+     * via `app.plugins.getPlugin("obsidian-annotator").styleObserver`. Because this fork is
+     * registered under the id "references", alias ourselves under the upstream id so the
+     * client can start — unless the real upstream plugin is actually installed.
+     */
+    private aliasUpstreamPluginId() {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const pm = (this.app as any).plugins;
+        if (pm?.plugins && !pm.plugins['obsidian-annotator']) {
+            pm.plugins['obsidian-annotator'] = this;
+            this.aliasedUpstreamId = true;
+        }
+    }
+
+    private removeUpstreamPluginAlias() {
+        if (!this.aliasedUpstreamId) return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const pm = (this.app as any).plugins;
+        if (pm?.plugins?.['obsidian-annotator'] === this) {
+            delete pm.plugins['obsidian-annotator'];
+        }
+        this.aliasedUpstreamId = false;
     }
 
     async loadSettings() {
