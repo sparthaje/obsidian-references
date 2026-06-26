@@ -177,7 +177,7 @@ export default class ReferenceNotesService {
         if (citing.path === note.path) return; // don't link a note to itself
 
         const link = this.plugin.app.fileManager.generateMarkdownLink(note, citing.path, undefined, ref.title);
-        const bullet = `- [${ref.number}] ${link}`;
+        const bullet = `- [${ref.label}] ${link}`;
 
         await this.plugin.app.vault.process(citing, data => {
             if (this.linkAlreadyPresent(data, note)) return data;

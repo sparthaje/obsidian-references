@@ -44,7 +44,9 @@ export interface PdfLike {
 }
 
 export interface PageReference {
-    number: number; // the [N] of the reference
+    id: string; // stable de-dup/identity key within the document
+    number: number | null; // the [N] of a numbered reference; null for author–year bibliographies
+    label: string; // panel chip text: "19" for numbered, "Vaswani et al. 2017" for author–year
     title: string; // best-effort extracted title (falls back to the full text)
     fullText: string; // the whole reference entry, cleaned
     destPage: number; // 1-based page where the entry lives (for "jump to reference")
@@ -71,7 +73,7 @@ interface Line {
 }
 
 interface Marker {
-    number: number;
+    number: number | null; // [N] when the bibliography is numbered, else null (author–year)
     lineIndex: number; // index into the ordered line list
     x: number;
     y: number;
@@ -86,6 +88,7 @@ interface PageModel {
 }
 
 const LINE_TOL = 3; // points; items within this y-distance are on the same line
+const INDENT_TOL = 4; // points; lines within this of a column's left edge count as "flush left"
 
 /** Resolve a link annotation's destination to a page index + target coordinates. */
 export async function resolveDestination(pdf: PdfLike, dest: string | unknown[]): Promise<ResolvedTarget | null> {
@@ -192,15 +195,81 @@ export function buildPageModel(items: TextItemLike[], pageWidth: number): PageMo
         orderedLines = clusterLines(norm, 0);
     }
 
-    const markers: Marker[] = [];
-    orderedLines.forEach((line, lineIndex) => {
-        const m = /^\[(\d+)\]/.exec(line.text);
-        if (m) {
-            markers.push({ number: parseInt(m[1], 10), lineIndex, x: line.x, y: line.y, col: line.col });
-        }
-    });
+    return { orderedLines, markers: detectMarkers(orderedLines), midX, twoColumn };
+}
 
-    return { orderedLines, markers, midX, twoColumn };
+/**
+ * Find the lines that begin reference entries. Two bibliography styles exist:
+ *
+ *  - Numbered ("[19] Dosovitskiy …"): each entry starts with a `[N]` marker.
+ *  - Author–year ("Dosovitskiy, A., … 2020."): no marker; instead entries use a
+ *    *hanging indent* — the first line of each entry sits flush at the column's
+ *    left edge while continuation lines are indented further right.
+ *
+ * We prefer the numbered markers when there are clearly several of them, and
+ * otherwise fall back to hanging-indent detection. This keeps a stray "[3]"
+ * appearing inside an author–year entry from masquerading as the only marker.
+ */
+function detectMarkers(lines: Line[]): Marker[] {
+    const numbered: Marker[] = [];
+    lines.forEach((line, lineIndex) => {
+        const m = /^\[(\d+)\]/.exec(line.text);
+        if (m) numbered.push({ number: parseInt(m[1], 10), lineIndex, x: line.x, y: line.y, col: line.col });
+    });
+    if (numbered.length >= 2) return numbered;
+
+    const hanging = detectHangingIndentMarkers(lines);
+    return hanging.length > numbered.length ? hanging : numbered;
+}
+
+/**
+ * Detect entry starts in an author–year bibliography by its hanging indent: per
+ * column, the entry's first line is flush with the column's left edge and the
+ * rest are indented. Requires a meaningful share of indented (continuation)
+ * lines so ordinary body text — where almost every line is flush left — is not
+ * mistaken for a bibliography when a non-citation link happens to point at it.
+ */
+function detectHangingIndentMarkers(lines: Line[]): Marker[] {
+    const markers: Marker[] = [];
+    for (const col of [0, 1]) {
+        const colLines = lines.map((l, i) => ({ l, i })).filter(o => o.l.col === col);
+        if (colLines.length < 3) continue;
+        const minX = Math.min(...colLines.map(o => o.l.x));
+        const indented = colLines.filter(o => o.l.x > minX + INDENT_TOL);
+        // A real hanging-indent bibliography has many continuation lines; body
+        // text (flush-left or first-line-indented paragraphs) has very few.
+        if (indented.length < colLines.length * 0.25) continue;
+        for (const { l, i } of colLines) {
+            if (l.x <= minX + INDENT_TOL && looksLikeEntryStart(l.text)) {
+                markers.push({ number: null, lineIndex: i, x: l.x, y: l.y, col });
+            }
+        }
+    }
+    return markers.sort((a, b) => a.lineIndex - b.lineIndex);
+}
+
+/** A reference entry begins with an author name — a capital letter or initial. */
+function looksLikeEntryStart(text: string): boolean {
+    return text.length >= 6 && /^[A-Z\p{Lu}]/u.test(text);
+}
+
+/**
+ * A short "Surname [et al.] Year" label for an author–year reference, used as
+ * the panel chip and backlink bullet (numbered references just use their [N]).
+ * Mirrors the author parsing in referenceNotesService but adds the year.
+ */
+export function authorYearLabel(fullText: string): string {
+    const body = fullText.replace(/^\[\d+\]\s*/, '').trim();
+    const year = /\b(?:19|20)\d{2}[a-z]?\b/.exec(body)?.[0] ?? '';
+    // The author block is everything up to the first real sentence break (the
+    // title). Don't split after a lone initial ("A. Vaswani").
+    const authorBlock = body.split(/(?<!\b[A-Z])\.\s+/)[0] ?? body;
+    const firstAuthor = authorBlock.split(/,|\sand\s/i)[0].trim();
+    const tokens = firstAuthor.split(/\s+/).filter(t => t.replace(/\./g, '').length > 1 && /[A-Za-z]/.test(t));
+    const surname = tokens.length ? tokens[tokens.length - 1].replace(/[^A-Za-z'-]/g, '') : '';
+    const multiAuthor = /\bet\s+al\b/i.test(authorBlock) || /,|\sand\s/i.test(authorBlock);
+    const name = surname ? (multiAuthor ? `${surname} et al.` : surname) : 'Reference';
+    return year ? `${name} ${year}` : name;
 }
 
 /** The full text of the reference entry beginning at markers[markerIdx]. */
@@ -331,7 +400,7 @@ export async function getCitedReferencesOnPage(
         byPage.set(resolved.pageIndex, arr);
     }
 
-    const results = new Map<number, PageReference>();
+    const results = new Map<string, PageReference>();
     for (const [pageIndex, targets] of byPage) {
         let model = pageCache?.get(pageIndex);
         if (!model) {
@@ -345,10 +414,15 @@ export async function getCitedReferencesOnPage(
             const markerIdx = findEntryAt(model, target);
             if (markerIdx < 0) continue;
             const marker = model.markers[markerIdx];
-            if (results.has(marker.number)) continue;
+            // Numbered references de-dup by their global [N]; author–year ones by
+            // the entry they land on (same destination → same page + line).
+            const id = marker.number != null ? `n:${marker.number}` : `p:${pageIndex}:${marker.lineIndex}`;
+            if (results.has(id)) continue;
             const fullText = extractEntryText(model, markerIdx);
-            results.set(marker.number, {
+            results.set(id, {
+                id,
                 number: marker.number,
+                label: marker.number != null ? String(marker.number) : authorYearLabel(fullText),
                 title: guessTitle(fullText),
                 fullText,
                 destPage: pageIndex + 1
@@ -356,5 +430,13 @@ export async function getCitedReferencesOnPage(
         }
     }
 
-    return [...results.values()].sort((a, b) => a.number - b.number);
+    return [...results.values()].sort(compareReferences);
+}
+
+/** Numbered references sort by [N]; author–year ones alphabetically (≈ bibliography order). */
+function compareReferences(a: PageReference, b: PageReference): number {
+    if (a.number != null && b.number != null) return a.number - b.number;
+    if (a.number != null) return -1;
+    if (b.number != null) return 1;
+    return a.label.localeCompare(b.label);
 }

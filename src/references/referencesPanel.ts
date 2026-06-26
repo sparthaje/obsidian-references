@@ -101,8 +101,8 @@ export default class ReferencesPanelView extends ItemView {
         for (const ref of state.refs) {
             const row = list.createDiv({ cls: 'links-reference-row' });
             row.setAttribute('role', 'button');
-            row.setAttribute('title', `Jump to reference [${ref.number}] on page ${ref.destPage}`);
-            row.createSpan({ cls: 'links-reference-num', text: `[${ref.number}]` });
+            row.setAttribute('title', `Jump to reference [${ref.label}] on page ${ref.destPage}`);
+            row.createSpan({ cls: 'links-reference-num', text: `[${ref.label}]` });
             const body = row.createDiv({ cls: 'links-reference-body' });
             body.createDiv({ cls: 'links-reference-title', text: ref.title });
             if (ref.fullText && ref.fullText !== ref.title) {
