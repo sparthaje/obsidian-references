@@ -228,6 +228,9 @@ export default class ReferenceNotesService {
         const newSlug = slug(title).slice(0, MAX_KEY_LENGTH).replace(/-+$/g, '');
         if (!newSlug || file.basename === newSlug) return;
 
+        // The renamed note lands in the references folder; create it first, or
+        // renameFile throws on a fresh vault where the folder doesn't exist yet.
+        await this.ensureFolder();
         const newPath = await this.uniquePath(newSlug);
         this.renaming.add(file.path);
         try {
