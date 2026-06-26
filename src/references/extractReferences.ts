@@ -182,11 +182,17 @@ export function buildPageModel(items: TextItemLike[], pageWidth: number): PageMo
     const rightItems = norm.filter(i => i.x >= midX);
     const total = norm.length || 1;
     // True two-column layouts have an empty central gutter: almost no text item
-    // crosses the page midline. A full-width single column has many lines whose
-    // text spans across the middle, so counting "straddlers" distinguishes them.
+    // crosses the page midline. A full-width single column instead has a text
+    // item spanning the middle on nearly every line, so the fraction of
+    // "straddlers" cleanly separates the two — measured across real one- and
+    // two-column papers it sits near 0–2% for two-column vs 12–24% for single,
+    // so an 8% cutoff discriminates with wide margin and tolerates the handful
+    // of full-width section headers, captions, and equations a two-column body
+    // page carries. (Requiring both columns to be text-heavy, as a stricter
+    // rule once did, wrongly demoted pages where one column is mostly a figure.)
     const straddling = norm.filter(i => i.x < midX && i.x + i.w > midX).length;
     const twoColumn =
-        straddling <= Math.max(2, total * 0.01) && leftItems.length > total * 0.15 && rightItems.length > total * 0.15;
+        straddling <= Math.max(2, total * 0.08) && leftItems.length > total * 0.1 && rightItems.length > total * 0.1;
 
     let orderedLines: Line[];
     if (twoColumn) {
@@ -377,9 +383,23 @@ const pageWidthOf = (page: PageLike, items: TextItemLike[]): number => {
 };
 
 /**
- * Main entry point: the references cited on `pageNumber` (1-based), as a
- * de-duplicated, number-sorted list. `pageCache` (optional) memoizes per-page
- * text models across calls so repeated page changes stay cheap.
+ * Reading-order rank of a citation from its annotation rectangle on the current
+ * page: by column first (left before right, two-column pages only), then
+ * top-to-bottom. Smaller = earlier. Citations without a rect sort to the end.
+ */
+function citationOrder(rect: number[] | undefined, twoColumn: boolean, midX: number): number {
+    if (!rect || rect.length < 4) return Number.MAX_SAFE_INTEGER;
+    const cx = (rect[0] + rect[2]) / 2;
+    const cy = (rect[1] + rect[3]) / 2; // PDF y grows upward, so a larger y is higher on the page
+    const col = twoColumn && cx >= midX ? 1 : 0;
+    return col * 1e7 - cy;
+}
+
+/**
+ * Main entry point: the references cited on `pageNumber` (1-based), de-duplicated
+ * and ordered by where their citation first appears on the page (reading order).
+ * `pageCache` (optional) memoizes per-page text models across calls so repeated
+ * page changes stay cheap.
  */
 export async function getCitedReferencesOnPage(
     pdf: PdfLike,
@@ -390,18 +410,32 @@ export async function getCitedReferencesOnPage(
     const annotations = await page.getAnnotations();
     const internalLinks = annotations.filter(a => a.subtype === 'Link' && a.dest != null && !a.url);
 
-    // Resolve every citation link to a destination page + position.
-    const byPage = new Map<number, ResolvedTarget[]>();
-    for (const link of internalLinks) {
-        const resolved = await resolveDestination(pdf, link.dest as string | unknown[]);
-        if (!resolved) continue;
-        const arr = byPage.get(resolved.pageIndex) ?? [];
-        arr.push(resolved);
-        byPage.set(resolved.pageIndex, arr);
+    // Model of the current page, used to rank citations into reading order
+    // (column + vertical position). Cached like the destination pages.
+    const curIndex = pageNumber - 1;
+    let curModel = pageCache?.get(curIndex);
+    if (!curModel) {
+        const tc = await page.getTextContent();
+        curModel = buildPageModel(tc.items, pageWidthOf(page, tc.items));
+        pageCache?.set(curIndex, curModel);
     }
 
-    const results = new Map<string, PageReference>();
-    for (const [pageIndex, targets] of byPage) {
+    // Resolve every citation link to a destination page + position, keeping its
+    // on-page reading order so the panel can list references as they're cited.
+    interface Cite {
+        target: ResolvedTarget;
+        order: number;
+    }
+    const cites: Cite[] = [];
+    for (const link of internalLinks) {
+        const target = await resolveDestination(pdf, link.dest as string | unknown[]);
+        if (!target) continue;
+        cites.push({ target, order: citationOrder(link.rect, curModel.twoColumn, curModel.midX) });
+    }
+
+    const results = new Map<string, { ref: PageReference; order: number }>();
+    for (const { target, order } of cites) {
+        const pageIndex = target.pageIndex;
         let model = pageCache?.get(pageIndex);
         if (!model) {
             const destPage = await pdf.getPage(pageIndex + 1);
@@ -410,33 +444,30 @@ export async function getCitedReferencesOnPage(
             pageCache?.set(pageIndex, model);
         }
         if (model.markers.length === 0) continue; // destination is not a bibliography (e.g. figure/section/ToC link)
-        for (const target of targets) {
-            const markerIdx = findEntryAt(model, target);
-            if (markerIdx < 0) continue;
-            const marker = model.markers[markerIdx];
-            // Numbered references de-dup by their global [N]; author–year ones by
-            // the entry they land on (same destination → same page + line).
-            const id = marker.number != null ? `n:${marker.number}` : `p:${pageIndex}:${marker.lineIndex}`;
-            if (results.has(id)) continue;
-            const fullText = extractEntryText(model, markerIdx);
-            results.set(id, {
+        const markerIdx = findEntryAt(model, target);
+        if (markerIdx < 0) continue;
+        const marker = model.markers[markerIdx];
+        // Numbered references de-dup by their global [N]; author–year ones by
+        // the entry they land on (same destination → same page + line).
+        const id = marker.number != null ? `n:${marker.number}` : `p:${pageIndex}:${marker.lineIndex}`;
+        const existing = results.get(id);
+        if (existing) {
+            existing.order = Math.min(existing.order, order); // rank by first appearance
+            continue;
+        }
+        const fullText = extractEntryText(model, markerIdx);
+        results.set(id, {
+            order,
+            ref: {
                 id,
                 number: marker.number,
                 label: marker.number != null ? String(marker.number) : authorYearLabel(fullText),
                 title: guessTitle(fullText),
                 fullText,
                 destPage: pageIndex + 1
-            });
-        }
+            }
+        });
     }
 
-    return [...results.values()].sort(compareReferences);
-}
-
-/** Numbered references sort by [N]; author–year ones alphabetically (≈ bibliography order). */
-function compareReferences(a: PageReference, b: PageReference): number {
-    if (a.number != null && b.number != null) return a.number - b.number;
-    if (a.number != null) return -1;
-    if (b.number != null) return 1;
-    return a.label.localeCompare(b.label);
+    return [...results.values()].sort((a, b) => a.order - b.order).map(e => e.ref);
 }
